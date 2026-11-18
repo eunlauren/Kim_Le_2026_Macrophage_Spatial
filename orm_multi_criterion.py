@@ -1,6 +1,6 @@
 # ORM MULTI-CRITERION
 # Author(s): Lauren Kim, Jennifer Le (UCSF)
-# Multi-criteron ORM-based filtering (Figure 3) for Kim, Le et al. 2026
+# Multi-criterion ORM-based filtering (Figure 3) for Kim, Le et al. 2026
 
 from pathlib import Path
 import numpy as np
