@@ -13,62 +13,6 @@ from scipy.stats import chi2
 from pathlib import Path
 from typing import Optional, Dict, Sequence, Tuple, Union, Mapping
 
-# SETTINGS
-INPUT_H5AD = "FINAL_ALLRM_XENIUM_062026.h5ad"
-OUTDIR = Path("PAIR_ENRICH_OUTPUT")
-
-SAMPLE_KEY = "patient"
-CELLTYPE_KEY = "celltype_1"
-NICHE_KEY = "cellcharter_L2_K8_autok"
-LABEL_KEY = "mixing_inference_labels"
-GRAPH_KEY = "delaunay_uw_connectivities"
-
-TRM_CELLTYPE = "Macrophage"
-DNMAC_CELLTYPE = "Ductal niche macrophage"
-DNMAC_LABEL = "DNMAC"
-FOCUS_NICHE_TO_LABEL = {
-    "C1": "C1_STRM",
-    "C2": "C2_STRM",
-    "C3": "C3_STRM",
-    "C4": "C4_STRM",
-    "C5": "C5_STRM",
-    "C7": "C7_STRM",
-}
-FOCUS_LABELS = list(FOCUS_NICHE_TO_LABEL.values()) + [DNMAC_LABEL]
-PARTNER_CELLTYPES = [
-    "Adipocyte",
-    "B cell",
-    "Connective tissue",
-    "Ductal niche macrophage",
-    "Dendritic cell",
-    "Endothelial",
-    "Fibroblast",
-    "LHS",
-    "LASP",
-    "Lymphatic endothelial",
-    "Macrophage",
-    "Monocyte",
-    "Mural",
-    "B-Myo",
-    "Plasma cell",
-    "T cell",
-]
-
-MIN_CELLS_PER_SAMPLE = 20
-MIN_EXPECTED = 5.0
-N_PERMS = 4999
-BASE_SEED = 1000  # patient i uses seed BASE_SEED + i
-
-WEIGHTS = "equal"
-MIN_CONTRIB = 4
-PSEUDOCOUNT = 0.5
-ALPHA = 0.05
-CONSISTENCY_THRESH = 0.75
-N_TOP = 5
-
-# LOAD IN DATA
-adata = sc.read_h5ad(INPUT_H5AD)
-
 def build_labels_for_mixing(
     obs: pd.DataFrame,
     *,
@@ -92,17 +36,17 @@ def build_labels_for_mixing(
 
     if focus_niche_to_label is None:
         raise ValueError(
-            "Warning: focus_niche_to_label is required."
+            "focus_niche_to_label is required."
         )
 
     if nonfocus_trm_policy not in {"keep_celltype", "relabel", "other"}:
-        raise ValueError("Warning:: nonfocus_trm_policy must be in {'keep_celltype','relabel','other'}.")
+        raise ValueError("nonfocus_trm_policy must be in {'keep_celltype','relabel','other'}.")
 
     if nan_niche_trm_policy not in {"nonfocus", "other"}:
-        raise ValueError("Warning: nan_niche_trm_policy must be in {'nonfocus','other'}.")
+        raise ValueError("nan_niche_trm_policy must be in {'nonfocus','other'}.")
 
     if unknown_policy not in {"other", "error"}:
-        raise ValueError("Warning: unknown_policy must be in {'other','error'}.")
+        raise ValueError("unknown_policy must be in {'other','error'}.")
 
     for k in (celltype_key, niche_key):
         if k not in obs.columns:
@@ -125,7 +69,6 @@ def build_labels_for_mixing(
     anchor_np = niche_anchor.to_numpy(dtype=object)
 
     labels = np.full(n, None, dtype=object)
-
 
     labels[is_dnmac] = dnmac_label
     trm_focus = is_trm & anchor_present
@@ -253,24 +196,6 @@ def build_labels_for_mixing(
 
     return labels_cat, qc
 
-mixing_labels, mixing_labels_qc = build_labels_for_mixing(
-    adata.obs,
-    celltype_key=CELLTYPE_KEY,
-    niche_key=NICHE_KEY,
-    trm_celltype=TRM_CELLTYPE,
-    dnmac_celltype=DNMAC_CELLTYPE,
-    focus_niche_to_label=FOCUS_NICHE_TO_LABEL,
-    dnmac_label=DNMAC_LABEL,
-    nonfocus_trm_policy="keep_celltype",
-    nan_niche_trm_policy="nonfocus",
-    partner_celltypes=PARTNER_CELLTYPES,
-    unknown_policy="error",
-    rare_min_cells_global=0,
-    require_any_focus_trm=True,
-    return_qc=True
-)
-adata.obs[LABEL_KEY] = mixing_labels
-
 def generate_label_qc_tables(
     adata,
     sample_key: str = "patient",
@@ -300,7 +225,7 @@ def generate_label_qc_tables(
 
         if missing:
             raise ValueError(
-                f"label_key {label_key!r} has values absent from `categories`."
+                f"label_key {label_key!r} has values absent from 'categories'."
             )
 
         cat_dtype = pd.CategoricalDtype(categories=final_categories, ordered=True)
@@ -335,10 +260,10 @@ def build_testable_interaction_mask(
 ) -> Dict[str, object]:
 
     if min_cells_per_sample < 0:
-        raise ValueError("Warning: min_cells_per_sample must be non-negative.")
+        raise ValueError("min_cells_per_sample must be non-negative.")
 
     if node_counts_df.shape[1] == 0:
-        raise ValueError("Warning: node_counts_df has zero label columns.")
+        raise ValueError("node_counts_df has zero label columns.")
 
     labels = list(node_counts_df.columns)
     labels_str = [str(x) for x in labels]
@@ -358,7 +283,7 @@ def build_testable_interaction_mask(
         missing = focus_set - col_set
         if missing:
             warnings.warn(
-                "focus_labels absent from node_counts columns."
+                "Warning: focus_labels absent from node_counts columns."
             )
 
         is_focus = np.array([lab in focus_set for lab in labels_str], dtype=bool)
@@ -412,25 +337,6 @@ def build_testable_interaction_mask(
         out["pairs"] = pairs
 
     return out
-
-categories = list(adata.obs[LABEL_KEY].cat.categories)
-node_counts = generate_label_qc_tables(
-    adata,
-    sample_key=SAMPLE_KEY,
-    label_key=LABEL_KEY,
-    categories=categories,
-    dropna=False,
-)
-
-testability = build_testable_interaction_mask(
-    node_counts_df=node_counts,
-    min_cells_per_sample=MIN_CELLS_PER_SAMPLE,
-    focus_labels=FOCUS_LABELS,
-    include_diagonal=True,
-    return_pairs=False,
-)
-labels = testability["labels"]
-pair_mask_A = testability["pair_mask"]
 
 # PERMUTATION
 def upper_triangle_edges_from_sparse(A: sparse.spmatrix):
@@ -560,7 +466,7 @@ def per_sample_ct_enrichment(
     if (labels_s >= K).any():
         bad_codes = np.unique(labels_s[labels_s >= K])
         raise ValueError(
-            f"Found label codes >= K={K}: {bad_codes[:20]}: mismatch between labels_int_global and pair_mask_A. "
+            f"Found label codes >= K={K}: {bad_codes[:20]}: mismatch between labels_int_global and pair_mask_A."
         )
 
     if groups_s is not None:
@@ -757,90 +663,6 @@ def per_sample_ct_enrichment(
         "n_counts": n_counts,
     }
 
-K = len(labels)
-
-sample_order=list(node_counts.index)
-
-# GRAPH
-A = adata.obsp[GRAPH_KEY]
-
-if not sparse.issparse(A):
-    A = sparse.csr_matrix(A)
-
-rows, cols = upper_triangle_edges_from_sparse(A)
-
-sample_values = adata.obs[SAMPLE_KEY].to_numpy()
-
-# LABEL
-lab = adata.obs[LABEL_KEY].astype("string")
-
-cat_dtype = pd.CategoricalDtype(categories=list(map(str, labels)), ordered=False)
-lab_cat = lab.astype(cat_dtype)
-
-labels_int_global = lab_cat.cat.codes.to_numpy()
-
-results_all = {}
-
-for si, sample in enumerate(sample_order):
-    print(f"[{si + 1}/{len(sample_order)}] | Running {sample}...")
-
-    node_idx_s = np.flatnonzero(sample_values == sample)
-
-    edge_mask_s = (sample_values[rows] == sample) & (sample_values[cols] == sample)
-    rows_s = rows[edge_mask_s]
-    cols_s = cols[edge_mask_s]
-
-    res_s = per_sample_ct_enrichment(
-        rows_s=rows_s,
-        cols_s=cols_s,
-        node_idx_s=node_idx_s,
-        labels_int_global=labels_int_global,
-        K=K,
-        pair_mask_A=pair_mask_A[sample],
-        min_expected=MIN_EXPECTED,
-        n_perms=N_PERMS,
-        seed=BASE_SEED + si,
-        groups_s=None,
-        compute_perm_moments=False,
-        expected_n_counts=node_counts.loc[sample, labels].to_numpy(),
-    )
-    res_s["testability"]["sample"] = sample
-    results_all[sample] = res_s
-
-print("All per-sample permutations finished.")
-
-# PREPARE FOR STATISTICAL TESTS
-anchor_idx = [labels.index(a) for a in FOCUS_LABELS]
-is_anchor = np.zeros(K, bool); is_anchor[anchor_idx] = True
-z_ceiling = norm.isf(1.0/(N_PERMS+1.0))
-
-contrib = np.zeros((K,K), int)
-for s in sample_order: contrib += results_all[s]["final_mask"].astype(int)
-iu, ju = np.triu_indices(K, k=0)
-fam = is_anchor[iu] | is_anchor[ju]
-cov = contrib[iu, ju][fam]; ever = cov[cov > 0]
-print("n_contrib distribution (anchor upper-tri pairs ever tested):")
-print(pd.Series(ever).value_counts().sort_index())
-print(f"Tested in >={MIN_CONTRIB} samples: {(ever>=MIN_CONTRIB).sum()}/{ever.size}. Singletons: {(ever==1).sum()}.")
-
-for s in sample_order:
-    Z, fm = results_all[s]["Z_signed"], results_all[s]["final_mask"]
-    print(s, "Fraction |Z| at ceiling:", round(float(np.mean(np.abs(Z[fm]) >= z_ceiling-1e-9)), 3))
-
-diagc = np.diag(contrib)
-print({labels[i]: int(diagc[i]) for i in anchor_idx})
-
-for a in FOCUS_LABELS:
-    ai = labels.index(a)
-    cnt = sum(results_all[s]["final_mask"][ai, :].any() for s in sample_order)
-    print(a, f"{cnt}/{len(sample_order)}", f"<- <{MIN_CONTRIB}: no shared claim" if cnt < MIN_CONTRIB else "")
-
-for s in sample_order:
-    Z, fm = results_all[s]["Z_signed"], results_all[s]["final_mask"]
-    assert np.array_equal(np.nan_to_num(Z), np.nan_to_num(Z.T))
-    assert np.isfinite(Z[fm]).all() and np.isnan(Z[~fm]).all()
-print("Symmetry + potential NaN structure okay.")
-
 # STATISTICS
 def fdr_bh(pvals: np.ndarray) -> np.ndarray:
     pvals = np.asarray(pvals, dtype=float)
@@ -863,7 +685,7 @@ def fdr_bh(pvals: np.ndarray) -> np.ndarray:
     q[idx_mask[order]] = q_sorted
     return q
 
-# ALT TEST (Benjamini-Yekutieli)
+# ALT TEST
 def fdr_by(pvals: np.ndarray) -> np.ndarray:
     pvals = np.asarray(pvals, dtype=float)
     q = np.full_like(pvals, np.nan, dtype=float)
@@ -987,7 +809,6 @@ def build_cross_sample_ct_table(
         eff_list.append(np.where(m, np.log((x + pseudocount) / (mu + pseudocount)), np.nan))
     eff_stack = np.stack(eff_list, axis=0)
 
-    # Per-pair median/mean log-enrichment across samples
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
         eff_median = np.nanmedian(eff_stack, axis=0)
@@ -1044,19 +865,6 @@ def build_cross_sample_ct_table(
     )
     return df
 
-cross_sample_df = build_cross_sample_ct_table(
-    results_all=results_all,
-    labels=labels,
-    sample_order=sample_order,
-    weights=WEIGHTS,
-    include_diagonal=True,
-    min_contrib=MIN_CONTRIB,
-    pseudocount=PSEUDOCOUNT,
-    alpha=ALPHA,
-    consistency_thresh=CONSISTENCY_THRESH,
-    compute_by_q=True,
-)
-
 def summarize_top_shared_pairs(df, focus_labels, *, n_top=5,
                                effect_col="log_enrich_median", verbose=True):
     focus_set = set(map(str, focus_labels))
@@ -1089,17 +897,207 @@ def summarize_top_shared_pairs(df, focus_labels, *, n_top=5,
             if len(enr):
                 for _, e in enr.iterrows():
                     print(f"{e['partner']:<26} log(x/mu)={e[effect_col]:+.3f}  "
-                          f"n_contrib={int(e['n_contrib'])}  pos_consist={e['frac_pos']:.2f}  q={e['q_stouffer']:.1e}")
+                          f"n_contrib={int(e['n_contrib'])} pos_consist={e['frac_pos']:.2f}  q={e['q_stouffer']:.1e}.")
             else:
                 print("No significantly enriched pairs.")
             print(f"TOP SHARED DEPLETED ({n_d} total):")
             if len(dep):
                 for _, e in dep.iterrows():
                     print(f"{e['partner']:<26} log(x/mu)={e[effect_col]:+.3f}  "
-                          f"n_contrib={int(e['n_contrib'])}  neg_consist={e['frac_neg']:.2f}  q={e['q_stouffer']:.1e}")
+                          f"n_contrib={int(e['n_contrib'])} neg_consist={e['frac_neg']:.2f}  q={e['q_stouffer']:.1e}.")
             else:
                 print("No significantly depleted pairs.")
     return out, view
+
+# CONFIGURATION
+INPUT_H5AD = "FINAL_ALLRM_XENIUM_062026.h5ad"
+OUTDIR = Path("PAIR_ENRICH_OUTPUT")
+
+SAMPLE_KEY = "patient"
+CELLTYPE_KEY = "celltype_1"
+NICHE_KEY = "cellcharter_L2_K8_autok"
+LABEL_KEY = "mixing_inference_labels"
+GRAPH_KEY = "delaunay_uw_connectivities"
+
+TRM_CELLTYPE = "Macrophage"
+DNMAC_CELLTYPE = "Ductal niche macrophage"
+DNMAC_LABEL = "DNMAC"
+FOCUS_NICHE_TO_LABEL = {
+    "C1": "C1_STRM",
+    "C2": "C2_STRM",
+    "C3": "C3_STRM",
+    "C4": "C4_STRM",
+    "C5": "C5_STRM",
+    "C7": "C7_STRM",
+}
+FOCUS_LABELS = list(FOCUS_NICHE_TO_LABEL.values()) + [DNMAC_LABEL]
+PARTNER_CELLTYPES = [
+    "Adipocyte",
+    "B cell",
+    "Connective tissue",
+    "Ductal niche macrophage",
+    "Dendritic cell",
+    "Endothelial",
+    "Fibroblast",
+    "LHS",
+    "LASP",
+    "Lymphatic endothelial",
+    "Macrophage",
+    "Monocyte",
+    "Mural",
+    "B-Myo",
+    "Plasma cell",
+    "T cell",
+]
+
+MIN_CELLS_PER_SAMPLE = 20
+MIN_EXPECTED = 5.0
+N_PERMS = 4999
+BASE_SEED = 1000 # patient i uses seed BASE_SEED + i
+
+WEIGHTS = "equal"
+MIN_CONTRIB = 4
+PSEUDOCOUNT = 0.5
+ALPHA = 0.05
+CONSISTENCY_THRESH = 0.75
+N_TOP = 5
+
+# LOAD IN DATA
+adata = sc.read_h5ad(INPUT_H5AD)
+
+mixing_labels, mixing_labels_qc = build_labels_for_mixing(
+    adata.obs,
+    celltype_key=CELLTYPE_KEY,
+    niche_key=NICHE_KEY,
+    trm_celltype=TRM_CELLTYPE,
+    dnmac_celltype=DNMAC_CELLTYPE,
+    focus_niche_to_label=FOCUS_NICHE_TO_LABEL,
+    dnmac_label=DNMAC_LABEL,
+    nonfocus_trm_policy="keep_celltype",
+    nan_niche_trm_policy="nonfocus",
+    partner_celltypes=PARTNER_CELLTYPES,
+    unknown_policy="error",
+    rare_min_cells_global=0,
+    require_any_focus_trm=True,
+    return_qc=True
+)
+adata.obs[LABEL_KEY] = mixing_labels
+
+categories = list(adata.obs[LABEL_KEY].cat.categories)
+node_counts = generate_label_qc_tables(
+    adata,
+    sample_key=SAMPLE_KEY,
+    label_key=LABEL_KEY,
+    categories=categories,
+    dropna=False,
+)
+
+testability = build_testable_interaction_mask(
+    node_counts_df=node_counts,
+    min_cells_per_sample=MIN_CELLS_PER_SAMPLE,
+    focus_labels=FOCUS_LABELS,
+    include_diagonal=True,
+    return_pairs=False,
+)
+labels = testability["labels"]
+pair_mask_A = testability["pair_mask"]
+
+K = len(labels)
+
+sample_order=list(node_counts.index)
+
+# GRAPH
+A = adata.obsp[GRAPH_KEY]
+
+if not sparse.issparse(A):
+    A = sparse.csr_matrix(A)
+
+rows, cols = upper_triangle_edges_from_sparse(A)
+
+sample_values = adata.obs[SAMPLE_KEY].to_numpy()
+
+# LABEL
+lab = adata.obs[LABEL_KEY].astype("string")
+
+cat_dtype = pd.CategoricalDtype(categories=list(map(str, labels)), ordered=False)
+lab_cat = lab.astype(cat_dtype)
+
+labels_int_global = lab_cat.cat.codes.to_numpy()
+
+results_all = {}
+
+for si, sample in enumerate(sample_order):
+    print(f"[{si + 1}/{len(sample_order)}] | Running {sample}...")
+
+    node_idx_s = np.flatnonzero(sample_values == sample)
+
+    edge_mask_s = (sample_values[rows] == sample) & (sample_values[cols] == sample)
+    rows_s = rows[edge_mask_s]
+    cols_s = cols[edge_mask_s]
+
+    res_s = per_sample_ct_enrichment(
+        rows_s=rows_s,
+        cols_s=cols_s,
+        node_idx_s=node_idx_s,
+        labels_int_global=labels_int_global,
+        K=K,
+        pair_mask_A=pair_mask_A[sample],
+        min_expected=MIN_EXPECTED,
+        n_perms=N_PERMS,
+        seed=BASE_SEED + si,
+        groups_s=None,
+        compute_perm_moments=False,
+        expected_n_counts=node_counts.loc[sample, labels].to_numpy(),
+    )
+    res_s["testability"]["sample"] = sample
+    results_all[sample] = res_s
+
+print("All per-sample permutations finished.")
+
+# PREPARE FOR STATISTICAL TESTS
+anchor_idx = [labels.index(a) for a in FOCUS_LABELS]
+is_anchor = np.zeros(K, bool); is_anchor[anchor_idx] = True
+z_ceiling = norm.isf(1.0/(N_PERMS+1.0))
+
+contrib = np.zeros((K,K), int)
+for s in sample_order: contrib += results_all[s]["final_mask"].astype(int)
+iu, ju = np.triu_indices(K, k=0)
+fam = is_anchor[iu] | is_anchor[ju]
+cov = contrib[iu, ju][fam]; ever = cov[cov > 0]
+print("n_contrib distribution (anchor upper-tri pairs ever tested):")
+print(pd.Series(ever).value_counts().sort_index())
+print(f"Tested in >={MIN_CONTRIB} samples: {(ever>=MIN_CONTRIB).sum()}/{ever.size}. Singletons: {(ever==1).sum()}.")
+
+for s in sample_order:
+    Z, fm = results_all[s]["Z_signed"], results_all[s]["final_mask"]
+    print(s, "Fraction |Z| at ceiling:", round(float(np.mean(np.abs(Z[fm]) >= z_ceiling-1e-9)), 3))
+
+diagc = np.diag(contrib)
+print({labels[i]: int(diagc[i]) for i in anchor_idx})
+
+for a in FOCUS_LABELS:
+    ai = labels.index(a)
+    cnt = sum(results_all[s]["final_mask"][ai, :].any() for s in sample_order)
+    print(a, f"{cnt}/{len(sample_order)}", f"<- <{MIN_CONTRIB}: no shared claim." if cnt < MIN_CONTRIB else "")
+
+for s in sample_order:
+    Z, fm = results_all[s]["Z_signed"], results_all[s]["final_mask"]
+    assert np.array_equal(np.nan_to_num(Z), np.nan_to_num(Z.T))
+    assert np.isfinite(Z[fm]).all() and np.isnan(Z[~fm]).all()
+print("Symmetry + potential NaN structure okay.")
+
+cross_sample_df = build_cross_sample_ct_table(
+    results_all=results_all,
+    labels=labels,
+    sample_order=sample_order,
+    weights=WEIGHTS,
+    include_diagonal=True,
+    min_contrib=MIN_CONTRIB,
+    pseudocount=PSEUDOCOUNT,
+    alpha=ALPHA,
+    consistency_thresh=CONSISTENCY_THRESH,
+    compute_by_q=True,
+)
 
 top, anchor_view = summarize_top_shared_pairs(
     cross_sample_df, focus_labels=FOCUS_LABELS, n_top=N_TOP
@@ -1113,4 +1111,4 @@ pd.DataFrame([results_all[s]["testability"] for s in sample_order]).assign(
 ).to_csv(OUTDIR / "per_patient_testability.tsv", sep="\t", index=False)
 cross_sample_df.to_csv(OUTDIR / "cross_sample_pair_enrichment.tsv", sep="\t", index=False)
 anchor_view.to_csv(OUTDIR / "anchor_pair_view.tsv", sep="\t", index=False)
-print(f"Outputs written to {OUTDIR.resolve()}")
+print(f"All outputs written to {OUTDIR.resolve()}.")

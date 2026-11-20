@@ -2,27 +2,11 @@
 # Author(s): Lauren Kim, Jennifer Le (UCSF)
 # Multi-criterion ORM-based filtering (Figure 3) for Kim, Le et al. 2026
 
-from pathlib import Path
 import numpy as np
 import pandas as pd
+from pathlib import Path
 
-# SETTINGS
-ORM_ROOT = Path("062026_SMIDE_ORM_BY_PATIENT_CELLTYPE_UPDATED")
-OUTDIR = ORM_ROOT / "CELLTYPE_ORM_FILTERS"
-
-# OBS
-CELLTYPE_COL = "celltype_1"
-GENE_COL = "target"
-PATIENT_COL = "patient"
-
-ORM_CUTOFF = 1                   
-MIN_EVALUABLE_PATIENTS = 5
-STRICT_MAJORITY_PASS_RATE = 0.625 # criterion 1
-MULTI_PASS_RATE = 0.5             # criteria 2&3: pass rate
-MEDIAN_RATIO_MAX = 1.0            # criteria 2&3: median ratio
-TAU_PRIMARY = 1.5                 # criteria 2&3: q75 ratio (primary)
-TAU_SENSITIVITY = 2.0             # q75 ratio (sensitivity)
-
+# FUNCTIONS
 def parse_bool_series(s: pd.Series) -> pd.Series:
     if s.dtype == bool:
         return s
@@ -53,7 +37,7 @@ def read_patient_orm_file(patient_dir: Path) -> pd.DataFrame:
     matches = list(patient_dir.glob("*_overlap_metrics_all_celltypes.tsv.gz")) # all patients
     if len(matches) != 1:
         raise FileNotFoundError(
-            f"Warning: expected exactly one all-celltypes ORM TSV.GZ in {patient_dir}."
+            f"Error: expected exactly one all-celltypes ORM TSV.GZ in {patient_dir}."
         )
 
     df = pd.read_csv(matches[0], sep="\t")
@@ -61,65 +45,6 @@ def read_patient_orm_file(patient_dir: Path) -> pd.DataFrame:
     if PATIENT_COL not in df.columns:
         df[PATIENT_COL] = patient_id
     return df
-
-# COMBINE
-patient_dirs = sorted([
-    p for p in ORM_ROOT.iterdir()
-    if p.is_dir() and p.name.endswith("_ORM")
-])
-
-if len(patient_dirs) == 0:
-    raise FileNotFoundError(f"Warning: no patient directories ending in '_ORM' found in {ORM_ROOT}.")
-
-all_orm = pd.concat(
-    [read_patient_orm_file(p) for p in patient_dirs],
-    ignore_index=True
-)
-
-required_cols = {
-    PATIENT_COL,
-    CELLTYPE_COL,
-    GENE_COL,
-    "ratio",
-    "avg_neighbor_othercluster",
-    "avg_cluster",
-}
-
-missing = required_cols - set(all_orm.columns)
-if missing:
-    raise ValueError(f"Warning: combined ORM table is missing required columns: {missing}.")
-
-for col in ["ratio", "avg_neighbor_othercluster", "avg_cluster"]:
-    all_orm[col] = pd.to_numeric(all_orm[col], errors="coerce")
-
-all_orm["orm_evaluable"] = np.isfinite(all_orm["ratio"]) | np.isposinf(all_orm["ratio"])
-all_orm["orm_pass_clean"] = np.isfinite(all_orm["ratio"]) & (all_orm["ratio"] <= ORM_CUTOFF)
-
-if "orm_pass" in all_orm.columns:
-    all_orm["orm_pass_from_R"] = parse_bool_series(all_orm["orm_pass"])
-# QC
-dup = (
-    all_orm
-    .groupby([PATIENT_COL, CELLTYPE_COL, GENE_COL], dropna=False)
-    .size()
-    .reset_index(name="n")
-    .query("n > 1")
-)
-
-if len(dup) > 0:
-    raise ValueError(
-        "Warning: duplicate rows detected."
-    )
-
-print(f"Loaded ORM rows: {all_orm.shape[0]:,}.")
-print(f"List of patients: {all_orm[PATIENT_COL].nunique()}.")
-print(f"Cell types: {all_orm[CELLTYPE_COL].nunique()}.")
-print(f"Genes: {all_orm[GENE_COL].nunique()}.")
-
-# SAVE
-OUTDIR.mkdir(parents=True, exist_ok=True)
-all_orm.to_csv(OUTDIR / "all_patients_all_celltypes_ORM_combined.tsv.gz",
-               sep="\t", index=False, compression="gzip")
 
 def summarize_group(g: pd.DataFrame) -> pd.Series:
     evaluable = g[g["orm_evaluable"]].copy()
@@ -151,6 +76,82 @@ def summarize_group(g: pd.DataFrame) -> pd.Series:
         "q75_ratio": q75_ratio,
     })
 
+# CONFIGURATION
+ORM_ROOT = Path("062026_SMIDE_ORM_BY_PATIENT_CELLTYPE_UPDATED")
+OUTDIR = ORM_ROOT / "CELLTYPE_ORM_FILTERS"
+
+# OBS
+CELLTYPE_COL = "celltype_1"
+GENE_COL = "target"
+PATIENT_COL = "patient"
+
+ORM_CUTOFF = 1                   
+MIN_EVALUABLE_PATIENTS = 5
+STRICT_MAJORITY_PASS_RATE = 0.625 # for 8 patients
+MULTI_PASS_RATE = 0.5
+MEDIAN_RATIO_MAX = 1.0 
+TAU_PRIMARY = 1.5 # primary
+TAU_SENSITIVITY = 2.0 # sensitivity
+
+# COMBINE
+patient_dirs = sorted([
+    p for p in ORM_ROOT.iterdir()
+    if p.is_dir() and p.name.endswith("_ORM")
+])
+
+if len(patient_dirs) == 0:
+    raise FileNotFoundError(f"Error: No patient directories ending in '_ORM' found in {ORM_ROOT}.")
+
+all_orm = pd.concat(
+    [read_patient_orm_file(p) for p in patient_dirs],
+    ignore_index=True
+)
+
+required_cols = {
+    PATIENT_COL,
+    CELLTYPE_COL,
+    GENE_COL,
+    "ratio",
+    "avg_neighbor_othercluster",
+    "avg_cluster",
+}
+
+missing = required_cols - set(all_orm.columns)
+if missing:
+    raise ValueError(f"Combined ORM table is missing required columns: {missing}.")
+
+for col in ["ratio", "avg_neighbor_othercluster", "avg_cluster"]:
+    all_orm[col] = pd.to_numeric(all_orm[col], errors="coerce")
+
+all_orm["orm_evaluable"] = np.isfinite(all_orm["ratio"]) | np.isposinf(all_orm["ratio"])
+all_orm["orm_pass_clean"] = np.isfinite(all_orm["ratio"]) & (all_orm["ratio"] <= ORM_CUTOFF)
+
+if "orm_pass" in all_orm.columns:
+    all_orm["orm_pass_from_R"] = parse_bool_series(all_orm["orm_pass"])
+# QC
+dup = (
+    all_orm
+    .groupby([PATIENT_COL, CELLTYPE_COL, GENE_COL], dropna=False)
+    .size()
+    .reset_index(name="n")
+    .query("n > 1")
+)
+
+if len(dup) > 0:
+    raise ValueError(
+        "Duplicate rows detected."
+    )
+
+print(f"Loaded ORM rows: {all_orm.shape[0]:,}.")
+print(f"List of patients: {all_orm[PATIENT_COL].nunique()}.")
+print(f"Cell types: {all_orm[CELLTYPE_COL].nunique()}.")
+print(f"Genes: {all_orm[GENE_COL].nunique()}.")
+
+# SAVE
+OUTDIR.mkdir(parents=True, exist_ok=True)
+all_orm.to_csv(OUTDIR / "all_patients_all_celltypes_ORM_combined.tsv.gz",
+               sep="\t", index=False, compression="gzip")
+
 gene_summary = (
     all_orm
     .groupby([CELLTYPE_COL, GENE_COL], dropna=False)
@@ -168,7 +169,7 @@ gene_summary["retain_strict_majority"] = (
     & (gene_summary["pass_rate"] >= STRICT_MAJORITY_PASS_RATE)
 )
 
-# CRITERIA 2&3: PRIMARY CRITERION
+# CRITERIA 2 & 3: PRIMARY CRITERION
 gene_summary["retain_multi_tau1p5"] = (
     gene_summary["enough_patients"]
     & (gene_summary["pass_rate"] >= MULTI_PASS_RATE)
@@ -202,4 +203,4 @@ filter_counts = gene_summary.groupby(CELLTYPE_COL)[retain_cols].sum()
 filter_counts.loc["ALL"] = filter_counts.sum()
 filter_counts.to_csv(OUTDIR / "retained_gene_counts_by_celltype.tsv", sep="\t")
 print(filter_counts.to_string())
-print(f"Outputs written to {OUTDIR.resolve()}")
+print(f"All outputs written to {OUTDIR.resolve()}.")

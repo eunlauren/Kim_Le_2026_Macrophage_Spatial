@@ -1,16 +1,33 @@
 # ASYMMETRIC NICHE ENRICHMENT
 # Author(s): Lauren Kim, Jennifer Le (UCSF)
-# Asymmetric niche enrichment extending on CellCharter's native niche enrichment (Figure 5) for Kim, Le et al. 2026
+# Asymmetric niche enrichment extending on CellCharter's native niche enrichment (Figure 5) for Kim, Le et al. 2026.
 
-from pathlib import Path
 import numpy as np
 import pandas as pd
 import scanpy as sc
 import cellcharter as cc
+from pathlib import Path
 from statsmodels.stats.multitest import multipletests
 from scipy.stats import norm
 
-# SETTINGS
+# FUNCTIONS
+def to_labeled_df(mat_obj, labels, present_labels=None):
+    df = mat_obj.copy()
+    df.index = df.index.astype(str)
+    df.columns = df.columns.astype(str)
+
+    df = df.reindex(index=labels, columns=labels).astype(float)
+
+    if present_labels is not None:
+        present_labels = set(map(str, present_labels))
+        absent = [c for c in labels if c not in present_labels]
+        if absent:
+            df.loc[absent, :] = np.nan
+            df.loc[:, absent] = np.nan
+
+    return df
+
+# SETTINGS/CONFIGURATION
 INPUT_H5AD = "FINAL_ALLRM_XENIUM_062026.h5ad"
 OUTDIR = Path("ASYM_NICHE_ENRICH_OUTPUT")
 
@@ -20,11 +37,11 @@ CONNECT_KEY = "delaunay_uw"
 LIBRARY_KEY = "patient"
 N_JOBS = 1
 
-# Pooled (all patients together)
+# POOLED (ALL PATIENTS)
 N_PERMS_POOLED = 1000
 ALPHA_POOLED = 0.05
 
-# Per patient, then combined across patients
+# PER PATIENT FOLLOWED BY COMBINED ACROSS PATIENTS
 N_PERMS_PATIENT = 10000
 ALPHA_PATIENT = 0.05
 ALPHA_PAIR = 0.05
@@ -32,6 +49,7 @@ MIN_K_EFF = 3
 MIN_SIGN_CONSISTENT = 5
 MIN_SIG_CONSISTENT = 5
 
+# READ IN DATA
 adata = sc.read_h5ad(INPUT_H5AD)
 
 # POOLED
@@ -84,22 +102,6 @@ for i in range(K):
 
 results_df = (pd.DataFrame(records).sort_values("qvalue_BH").reset_index(drop=True))
 
-def to_labeled_df(mat_obj, labels, present_labels=None):
-    df = mat_obj.copy()
-    df.index = df.index.astype(str)
-    df.columns = df.columns.astype(str)
-
-    df = df.reindex(index=labels, columns=labels).astype(float)
-
-    if present_labels is not None:
-        present_labels = set(map(str, present_labels))
-        absent = [c for c in labels if c not in present_labels]
-        if absent:
-            df.loc[absent, :] = np.nan
-            df.loc[:, absent] = np.nan
-
-    return df
-
 # PER PATIENT
 all_clusters = [str(c) for c in adata.obs[CLUSTER_KEY_PATIENT].cat.categories]
 K = len(all_clusters)
@@ -131,7 +133,7 @@ for pid in patients:
     present = sub.obs[CLUSTER_KEY_PATIENT].dropna().astype(str).unique().tolist()
     if len(present) < 2:
         continue
-    # CC nhood_enrichment
+    # CC native nhood_enrichment
     res = cc.gr.nhood_enrichment(
         sub,
         cluster_key=CLUSTER_KEY_PATIENT,
@@ -295,4 +297,4 @@ summary.to_csv(OUTDIR / "cross_patient_pair_summary.tsv", sep="\t", index=False)
 robust.to_csv(OUTDIR / "robust_pairs.tsv", sep="\t", index=False)
 
 print(f"Patients analysed: {len(per_patient)}/{len(patients)}. Pairs summarised: {len(summary)}. Robust pairs: {len(robust)}.")
-print(f"Outputs written to {OUTDIR.resolve()}")
+print(f"Outputs written to {OUTDIR.resolve()}.")
