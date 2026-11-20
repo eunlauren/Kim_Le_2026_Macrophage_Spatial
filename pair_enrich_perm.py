@@ -13,6 +13,7 @@ from scipy.stats import chi2
 from pathlib import Path
 from typing import Optional, Dict, Sequence, Tuple, Union, Mapping
 
+# FUNCTIONS
 def build_labels_for_mixing(
     obs: pd.DataFrame,
     *,
