@@ -1,6 +1,5 @@
-# Kim, Le et al. 2026
-Accompanying code for Kim, Le et al. 2026: "Spatial transcriptomics resolves ductal *TREM2*<sup>+</sup> and stromal *FOLR2*<sup>+</sup> macrophages in the normal human breast at microanatomical resolution".
-[bioRxiv](https://www.biorxiv.org/content/10.64898/2026.08.05.742266v1).
+# Spatial transcriptomics resolves ductal *TREM2*<sup>+</sup> and stromal *FOLR2*<sup>+</sup> macrophages in the normal human breast at microanatomical resolution
+Accompanying code for Kim, Le et al. 2026: [bioRxiv](https://www.biorxiv.org/content/10.64898/2026.08.05.742266v1).
 
 `orm_multi_criterion.py`
 Multi-criterion ORM-based filtering (Figure 3).
